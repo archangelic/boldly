@@ -101,9 +101,8 @@ def main():
             print(e)
             continue
     word = word.upper()
-    #pic = pic.convert('L').convert('RGB')
     h = halftone.Halftone('fimage.jpg')
-    h.make(style='grayscale', angles=[45])
+    h.make(style='grayscale', angles=[random.randrange(360)])
     pic = Image.open('fimage_halftoned.jpg')
     pic = pic.filter(ImageFilter.DETAIL)
     pic = pic.filter(ImageFilter.SHARPEN)
