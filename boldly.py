@@ -9,6 +9,7 @@ import halftone
 from mastodon import Mastodon
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import requests
+import tweepy
 
 with open('config.json') as f:
     config = json.load(f)
@@ -22,6 +23,13 @@ mastodon = Mastodon(
     access_token=config['mast_key'],
     api_base_url=config['mast_base_url']
 )
+
+twconf = config['twitter']
+
+twauth = tweepy.OAuthHandler(twconf['consumer_key'], twconf['consumer_secret'])
+twauth.set_access_token(twconf['access_token'], twconf['access_secret'])
+
+twapi = tweepy.API(twauth)
 
 WIDTH = 640
 HEIGHT = 360
@@ -87,6 +95,9 @@ def post_to_mastodon(pic_path, text):
     pic = mastodon.media_post(pic_path, description=desc)
     mastodon.status_post(text, media_ids=[pic])
 
+def post_to_twitter(pic_path, text):
+    twapi.update_with_media(pic_path, text)
+
 def cleanup():
     images = [i for i in os.listdir() if i.endswith(('.jpg', '.png', '.gif'))]
     for i in images:
@@ -119,6 +130,10 @@ def main():
     pic.save('output.png')
     try:
         post_to_mastodon('output.png', word)
+    except Exception as e:
+        print(e)
+    try:
+        post_to_twitter('output.png', word)
     except Exception as e:
         print(e)
     cleanup()
