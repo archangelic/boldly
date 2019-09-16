@@ -104,6 +104,20 @@ def cleanup():
         os.remove(i)
 
 def main():
+    palettes = {
+        'classic': {
+            'colorstr': '#000000',
+            'txtcolor': (255, 255, 255)
+        },
+        'white': {
+            'colorstr': '#ffffff',
+            'txtcolor': (0, 0, 0)
+        },
+        'barbara': {
+            'colorstr': '#e34234',
+            'txtcolor': (255, 255, 255)
+        }
+    }
     pic = None
     while not pic:
         try:
@@ -112,20 +126,21 @@ def main():
             print(e)
             continue
     word = word.upper()
+    color = palettes[random.choice(list(palettes.keys()))]
     h = halftone.Halftone('fimage.jpg')
     h.make(style='grayscale', angles=[random.randrange(360)])
     pic = Image.open('fimage_halftoned.jpg')
     pic = pic.filter(ImageFilter.DETAIL)
     pic = pic.filter(ImageFilter.SHARPEN)
     pic = select_section(pic)
-    border = Image.new('RGB', (WIDTH, HEIGHT))
+    border = Image.new('RGB', (WIDTH, HEIGHT), color=color['colorstr'])
     border.paste(pic, (10, 10))
     pic = border
     font = get_font_size(word)
     x,y = font.getsize(word)
-    inset = Image.new('RGB', (x+20, y+20))
+    inset = Image.new('RGB', (x+20, y+20), color=color['colorstr'])
     draw = ImageDraw.Draw(inset)
-    draw.text((10, 10), word, (255, 255, 255), font=font)
+    draw.text((10, 10), word, color['txtcolor'], font=font)
     pic.paste(inset, ((WIDTH - (x+20))//2, (HEIGHT - (y+20))//2))
     pic.save('output.png')
     try:
