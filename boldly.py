@@ -127,7 +127,6 @@ def main():
             continue
     word = word.upper()
     color = palettes[random.choice(list(palettes.keys()))]
-    color = palettes['classic']
     h = halftone.Halftone('fimage.jpg')
     h.make(style='grayscale', angles=[random.randrange(360)])
     pic = Image.open('fimage_halftoned.jpg')
