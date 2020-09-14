@@ -36,7 +36,7 @@ HEIGHT = 360
 
 def get_image():
     with open('words.txt') as f:
-        rand_word = random.choice(f.readlines())
+        rand_word = random.choice(f.readlines()).strip()
     print(rand_word)
     p = flickr.photos.search(
         text=rand_word,
