@@ -4,6 +4,7 @@ import os
 from pprint import pprint
 import random
 
+import click
 import flickrapi
 import halftone
 from mastodon import Mastodon
@@ -31,29 +32,28 @@ twauth.set_access_token(twconf['access_token'], twconf['access_secret'])
 
 twapi = tweepy.API(twauth)
 
-WIDTH = 640
-HEIGHT = 360
-
-def get_image():
-    with open('words.txt') as f:
-        rand_word = random.choice(f.readlines()).strip()
-    print(rand_word)
+def get_image(width, height, word=''):
+    if not word:
+        with open('words.txt') as f:
+            word = random.choice(f.readlines()).strip()
+        print(word)
     p = flickr.photos.search(
-        text=rand_word,
+        text=word,
         per_page=500,
-        extras='url_l,tags',
+        extras='url_o,o_dims,tags',
         safesearch=2,
     )
     print(len(p['photos']['photo']))
     photos = []
     for i in p['photos']['photo']:
         try:
-            if int(i['width_l']) >= WIDTH-20 and int(i['height_l']) >= HEIGHT-20:
+            if int(i['width_o']) >= width-20 and int(i['height_o']) >= height-20:
                 photos.append(i)
         except:
             continue
+    print(len(photos))
     photo = random.choice(photos)
-    purl = photo['url_l']
+    purl = photo['url_o']
     if 'food' in photo['tags']:
         print('contains food')
         return None, None
@@ -62,11 +62,11 @@ def get_image():
     with open('fimage.jpg', 'wb') as f:
         f.write(r.content)
     pic = Image.open('fimage.jpg')
-    return pic, rand_word
+    return pic, word
 
-def select_section(pic):
-    w = WIDTH - 20
-    h = HEIGHT - 20
+def select_section(pic, width, height, b_width):
+    w = width - (b_width * 2)
+    h = height - (b_width * 2)
     x = [i for i in range(pic.size[0] - w)]
     y = [i for i in range(pic.size[1] - h)]
     left = random.choice(x)
@@ -76,16 +76,17 @@ def select_section(pic):
     pic = pic.crop((left, top, right, bottom))
     return pic
 
-def get_font_size(word):
-    size_w = WIDTH - 120
-    size_h = HEIGHT - 120
+def get_font_size(word, width, height, margin):
+    margin = margin * 2
+    size_w = width - margin
+    size_h = height - margin
     x = 16
     font = ImageFont.truetype('couture-bldit.ttf', x)
-    w, h = font.getsize(word)
+    w, h = font.getsize_multiline(word)
     while w <= size_w and h <= size_h:
         x += 1
         font = ImageFont.truetype('couture-bldit.ttf', x)
-        w, h = font.getsize(word)
+        w, h = font.getsize_multiline(word)
     if w > size_w or h > size_h:
         x -= 1
     return ImageFont.truetype('couture-bldit.ttf', x)
@@ -103,7 +104,14 @@ def cleanup():
     for i in images:
         os.remove(i)
 
-def main():
+@click.command()
+@click.option('--palette', '-p', default=None)
+@click.option('--width', '-w', default=1920)
+@click.option('--height', '-h', default=1080)
+@click.option('--social/--nosocial', default=True)
+@click.option('--text', '-t', default='')
+@click.option('--search', '-z', default='')
+def main(palette, width, height, social, text, search):
     palettes = {
         'classic': {
             'colorstr': '#000000',
@@ -116,42 +124,66 @@ def main():
         'barbara': {
             'colorstr': '#e34234',
             'txtcolor': (255, 255, 255)
-        }
+        },
+        'town': {
+            'colorstr': '#e0B0ff',
+            'txtcolor': (0, 0, 0)
+        },
     }
     pic = None
     while not pic:
         try:
-            pic, word = get_image()
+            pic, word = get_image(width, height, search)
         except Exception as e:
             print(e)
             continue
-    word = word.upper()
-    color = palettes[random.choice(list(palettes.keys()))]
+    if text:
+        word = text.upper()
+    else:
+        word = word.upper()
+    if palette:
+        color = palettes[palette]
+    else:
+        color = palettes[random.choice(list(palettes.keys()))]
+
+
+    if height <= width:
+        b_width = height // 40
+        f_margin = width // 8
+    elif width < height:
+        b_width = width // 40
+        f_margin = height // 8
+
+    b_double = b_width * 2
+
     h = halftone.Halftone('fimage.jpg')
     h.make(style='grayscale', angles=[random.randrange(360)])
     pic = Image.open('fimage_halftoned.jpg')
     pic = pic.filter(ImageFilter.DETAIL)
     pic = pic.filter(ImageFilter.SHARPEN)
-    pic = select_section(pic)
-    border = Image.new('RGB', (WIDTH, HEIGHT), color=color['colorstr'])
-    border.paste(pic, (10, 10))
+    pic = select_section(pic, width, height, b_width)
+
+
+    border = Image.new('RGB', (width, height), color=color['colorstr'])
+    border.paste(pic, (b_width, b_width))
     pic = border
-    font = get_font_size(word)
-    x,y = font.getsize(word)
-    inset = Image.new('RGB', (x+20, y+20), color=color['colorstr'])
+    font = get_font_size(word, width, height, f_margin)
+    x,y = font.getsize_multiline(word)
+    inset = Image.new('RGB', (x+b_double, y+b_double), color=color['colorstr'])
     draw = ImageDraw.Draw(inset)
-    draw.text((10, 10), word, color['txtcolor'], font=font)
-    pic.paste(inset, ((WIDTH - (x+20))//2, (HEIGHT - (y+20))//2))
+    draw.text((b_width, b_width), word, color['txtcolor'], font=font)
+    pic.paste(inset, ((width - (x+b_double))//2, (height - (y+b_double))//2))
     pic.save('output.png')
-    try:
-        post_to_mastodon('output.png', word)
-    except Exception as e:
-        print(e)
-    try:
-        post_to_twitter('output.png', word)
-    except Exception as e:
-        print(e)
-    cleanup()
+    if social:
+        try:
+            post_to_mastodon('output.png', word)
+        except Exception as e:
+            print(e)
+        try:
+            post_to_twitter('output.png', word)
+        except Exception as e:
+            print(e)
+        cleanup()
 
 if __name__ == '__main__':
     main()
