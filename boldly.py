@@ -81,9 +81,10 @@ def select_section(pic, width, height, b_width):
 
 
 def get_font_size(word, width, height, margin):
+    word_lines = [l.strip() for l in word.split('\n')]
     margin = margin * 2
     size_w = width - margin
-    size_h = height - margin
+    size_h = height - (margin + ((len(word_lines) - 1) * 10))
     x = 16
     font = ImageFont.truetype('couture-bldit.ttf', x)
     w, h = font.getsize_multiline(word)
@@ -93,7 +94,7 @@ def get_font_size(word, width, height, margin):
         w, h = font.getsize_multiline(word)
     if w > size_w or h > size_h:
         x -= 1
-    return ImageFont.truetype('couture-bldit.ttf', x)
+    return x
 
 
 def crop_circle(pic):
@@ -107,21 +108,37 @@ def crop_circle(pic):
     return Image.fromarray(final_img_arr)
 
 
-def add_filter(pic, color):
-    layer = Image.new('RGBA', pic.size, color)
+def add_filter(pic, color, trans):
+    if trans:
+        layer = make_trans_flag(pic.size)
+    else:
+        layer = Image.new('RGBA', pic.size, color)
     # pic.paste(layer, (0, 0), layer)
-    pic = Image.blend(layer, pic.convert('RGBA'), 0.25)
+    pic = Image.blend(layer, pic.convert('RGBA'), 0.5)
     return pic
 
 
-def post_to_mastodon(pic_path, text):
-    desc = "generated black and white image with the word {} in bold font overlaid".format(text)
-    pic = mastodon.media_post(pic_path, description=desc)
+def make_trans_flag(size):
+    width, height = size
+    bands = height // 5
+    fl = Image.new('RGBA', (width, height), '#55CDFC')
+    pink = Image.new('RGBA', (width, bands*3), '#F7A8B8')
+    white = Image.new('RGBA', (width, bands), '#FFFFFF')
+    fl.paste(pink, (0, bands))
+    fl.paste(white, (0, bands*2))
+    fl.save('flag.png')
+    return fl
+
+
+def post_to_mastodon(pic_path, text, alt_text):
+    pic = mastodon.media_post(pic_path, description=alt_text)
     mastodon.status_post(text, media_ids=[pic])
 
 
-def post_to_twitter(pic_path, text):
-    twapi.update_with_media(pic_path, text)
+def post_to_twitter(pic_path, text, alt_text):
+    media = twapi.media_upload(pic_path)
+    twapi.create_media_metadata(media.media_id, alt_text)
+    twapi.update_status(text, media_ids=[media.media_id])
 
 
 def cleanup():
@@ -135,33 +152,64 @@ def cleanup():
 @click.option('--width', '-w', default=1920)
 @click.option('--height', '-h', default=1080)
 @click.option('--social/--nosocial', default=True)
-@click.option('--avatar', default=False)
+@click.option('--avatar/--noavatar', default=False)
 @click.option('--text', '-t', default='')
 @click.option('--search', '-z', default='')
-def main(palette, width, height, social, avatar, text, search):
+@click.option('--post', '-o', default='')
+def main(palette, width, height, social, avatar, text, search, post):
     palettes = {
         'classic': {
             'colorstr': '#000000',
-            'txtcolor': (255, 255, 255)
+            'txtcolor': (255, 255, 255),
+            'a11y': 'image composed of black and white circles with a black border. a black rectangle inset with "WORD" in bold white text is in the center'
         },
         'white': {
             'colorstr': '#ffffff',
-            'txtcolor': (0, 0, 0)
+            'txtcolor': (0, 0, 0),
+            'a11y': 'image composed of black and white circles with a white border. a white rectangle inset with "WORD" in bold black text is in the center'
         },
         'barbara': {
             'colorstr': '#e34234',
-            'txtcolor': (255, 255, 255)
+            'txtcolor': (255, 255, 255),
+            'a11y': 'image composed of black and white circles with a red border. a red rectangle inset with "WORD" in bold white text is in the center'
         },
         'town': {
             'colorstr': '#e0B0ff',
-            'txtcolor': (0, 0, 0)
+            'txtcolor': (0, 0, 0),
+            'a11y': 'image composed of black and white circles with a pink border. a pink rectangle inset with "WORD" in bold black text is in the center'
         },
         'rage': {
+            'exclusive': True,
             'colorstr': '#901312',
             'txtcolor': (20, 1, 1),
-            'filter': '341312'
+            'filter': '341312',
+            'a11y': 'image composed of black and dark red circles with a red border. a red rectangle inset with "WORD" in bold black text is in the center'
+        },
+        'trans': {
+            'exclusive': True,
+            'trans': True,
+            'colorstr': '#F7A8B8',
+            'txtcolor': (255, 255, 255),
+            'border': '#55CDFC',
+            'filter': 'F7A8B8',
+            'a11y': 'image composed of various circles with a blue, pink, and white trangender pride flag superimposed. The image is surrounded with a blue border. a pink rectangle inset with "WORD" in bold white text is in the center'
+        },
+        'twitch': {
+            'exclusive': True,
+            'colorstr': '#523d5f',
+            'filter': '523d5f',
+            'txtcolor': (237, 175, 235)
         }
     }
+
+    # make an avatar for boldly
+    if avatar:
+        if not text:
+            text = 'boldly'
+        width = 720
+        height = 720
+
+    # finds a pic from flickr to start off
     pic = None
     while not pic:
         try:
@@ -176,8 +224,10 @@ def main(palette, width, height, social, avatar, text, search):
     if palette:
         color = palettes[palette]
     else:
-        color = palettes[random.choice(['classic', 'white', 'barbara', 'town'])]
+        palette = random.choice([p for p in palettes if not palettes[p].get('exclusive')])
+        color = palettes[palette]
 
+    # sets borders and margins
     if height <= width:
         b_width = height // 40
         f_margin = width // 8
@@ -190,37 +240,66 @@ def main(palette, width, height, social, avatar, text, search):
     h = halftone.Halftone('fimage.jpg')
     h.make(style='grayscale', angles=[random.randrange(360)], sample=20)
     pic = Image.open('fimage_halftoned.jpg')
-    if palette:
-        if palette == 'rage':
-            r, g, b = bytes.fromhex(color['filter'])
-            ctuple = (r, g, b, 255)
-            pic = add_filter(pic, ctuple)
     pic = pic.filter(ImageFilter.DETAIL)
     pic = pic.filter(ImageFilter.SHARPEN)
     pic = select_section(pic, width, height, b_width)
+    if color.get('filter'):
+        r, g, b = bytes.fromhex(color['filter'])
+        ctuple = (r, g, b, 255)
+        pic = add_filter(pic, ctuple, trans=color.get('trans'))
     if avatar:
-        pic = crop_circle(pic)
+        pic = crop_circle(pic.convert('RGB'))
     empty_layer = Image.new('RGBA', (width, height))
     empty_layer.paste(pic, (b_width, b_width))
     pic = empty_layer
-    border = Image.new('RGB', (width, height), color=color['colorstr'])
+    if color.get('border'):
+        border_color = color['border']
+    else:
+        border_color = color['colorstr']
+    border = Image.new('RGB', (width, height), color=border_color)
     if avatar:
         border = crop_circle(border)
     pic = Image.alpha_composite(border.convert('RGBA'), pic)
-    font = get_font_size(word, width, height, f_margin)
-    x, y = font.getsize_multiline(word)
-    inset = Image.new('RGB', (x+b_double, y+b_double), color=color['colorstr'])
-    draw = ImageDraw.Draw(inset)
-    draw.text((b_width, b_width), word, color['txtcolor'], font=font)
-    pic.paste(inset, ((width - (x+b_double))//2, (height - (y+b_double))//2))
+    font_size = get_font_size(word, width, height, f_margin)
+    font = ImageFont.truetype('couture-bldit.ttf', font_size)
+    _, box_height = font.getsize_multiline(word)
+    line_cnt = len(word.split('\n'))
+    box_zero = (height - (b_double * line_cnt) - box_height)//2
+    z = 0
+    for l in word.split('\n'):
+        l = l.strip()
+        x, y = font.getsize_multiline(l)
+        print(x, y, box_zero + z + b_double)
+        inset = Image.new('RGB', (x+b_double, y+b_double), color=color['colorstr'])
+        draw = ImageDraw.Draw(inset)
+        draw.text((b_width, b_width), l, color['txtcolor'], font=font)
+        pic.paste(inset, ((width - (x+b_double))//2, box_zero + z))
+        z += y + b_double + 10
     pic.save('output.png')
-    if social:
+    if social and not avatar:
+        word = word.replace('\n', ' ')
+        if post:
+            post_text = post
+        else:
+            post_text = word
+        alt_text = color['a11y'].replace('WORD', word)
         try:
-            post_to_mastodon('output.png', word)
+            post_to_mastodon('output.png', post_text, alt_text)
         except Exception as e:
             print(e)
         try:
-            post_to_twitter('output.png', word)
+            post_to_twitter('output.png', post_text, alt_text)
+        except Exception as e:
+            print(e)
+        cleanup()
+
+    if avatar and social:
+        try:
+            mastodon.account_update_credentials(avatar='output.png')
+        except Exception as e:
+            print(e)
+        try:
+            twapi.update_profile_image('output.png')
         except Exception as e:
             print(e)
         cleanup()

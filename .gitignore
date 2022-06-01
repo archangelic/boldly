@@ -121,7 +121,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# boldly stuff
 config.json
 halftone.py
 *.ttf
 words.txt
+*.png
+*.jpg
