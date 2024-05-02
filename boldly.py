@@ -308,7 +308,7 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
     if color.get('filter'):
         r, g, b = bytes.fromhex(color['filter'])
         ctuple = (r, g, b, 255)
-        pic = add_filter(pic, ctuple, width, height, b_width, trans=color.get('trans'), ireland=color.get('ireland'))
+        pic = add_filter(pic, ctuple, width, height, b_width, trans=color.get('trans'), ireland=color.get('ireland'), watermelon=color.get('watermelon'))
 
     # make an avatar
     if avatar:
