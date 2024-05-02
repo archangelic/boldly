@@ -155,7 +155,7 @@ def make_watermelon(size):
     fl.paste(black, (0, 0))
     fl.paste(green, (0, bands*2))
     draw = ImageDraw.Draw(fl)
-    draw.polygon([(0,0), (0,height), (0,width//3)], fill='#EE2A35')
+    draw.polygon([(0,0), (0,height), (height//2,width//3)], fill='#EE2A35')
     return fl
 
 def post_to_mastodon(pic_path, text, alt_text):
@@ -328,6 +328,8 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
         border = make_trans_flag((width, height)).convert('RGB')
     elif color.get('ireland'):
         border = make_irish_flag((width, height)).convert('RGB')
+    elif color.get('watermelon'):
+        border = make_watermelon((width, height)).convert('RGB')
     else:
         border = Image.new('RGB', (width, height), color=border_color)
     if avatar:
