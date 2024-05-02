@@ -108,12 +108,15 @@ def crop_circle(pic):
     return Image.fromarray(final_img_arr)
 
 
-def add_filter(pic, color, width, height, b_width, trans, ireland):
+def add_filter(pic, color, width, height, b_width, trans, ireland, watermelon):
     if trans:
         layer = make_trans_flag((width, height))
         layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
     elif ireland:
         layer = make_irish_flag((width, height))
+        layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
+    elif watermelon:
+        layer = make_watermelon((width, height))
         layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
     else:
         layer = Image.new('RGBA', pic.size, color)
@@ -143,6 +146,17 @@ def make_irish_flag(size):
     fl.paste(orange, (bands*2, 0))
     return fl
 
+def make_watermelon(size):
+    width, height = size
+    bands = height // 3
+    fl = Image.new('RGBA', (width, height), '#FFFFFF')
+    black = Image.new('RGBA', (width, bands), '#000000')
+    green = Image.new('RGBA', (width, bands), '#009736')
+    fl.paste(black, (0, 0))
+    fl.paste(green, (0, bands*2))
+    draw = ImageDraw.Draw(fl)
+    draw.polygon([(0,0), (0,height), (0,width//3)], fill='#EE2A35')
+    return fl
 
 def post_to_mastodon(pic_path, text, alt_text):
     pic = mastodon.media_post(pic_path, description=alt_text)
@@ -228,6 +242,14 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
             'border': '#FF883E',
             'filter': 'FF883E',
             'a11y': 'image composed of various circles with green, white, and orange irish flag superimposed. The image is surrounded with an irish flag border. an orange rectangle inset with "WORD" in bold white text is in the center'
+        },
+        'watermelon': {
+            'exclusive': True,
+            'watermelon': True,
+            'colorstr': '#009736',
+            'txtcolor': (255, 255, 255),
+            'border': '#009736',
+            'filter': '009736'
         },
         'twitch': {
             'exclusive': True,
