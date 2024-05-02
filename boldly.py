@@ -249,7 +249,8 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
             'colorstr': '#009736',
             'txtcolor': (255, 255, 255),
             'border': '#009736',
-            'filter': '009736'
+            'filter': '009736',
+            'a11y': 'image composed of various circles with black, white, and green horizontal stripes and a red triangle on the left side. It is the flag of palestine. A green rectangle inset with "WORD" in bold white text is in the center'
         },
         'twitch': {
             'exclusive': True,
