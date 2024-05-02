@@ -108,9 +108,13 @@ def crop_circle(pic):
     return Image.fromarray(final_img_arr)
 
 
-def add_filter(pic, color, trans):
+def add_filter(pic, color, width, height, b_width, trans, ireland):
     if trans:
-        layer = make_trans_flag(pic.size)
+        layer = make_trans_flag((width, height))
+        layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
+    elif ireland:
+        layer = make_irish_flag((width, height))
+        layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
     else:
         layer = Image.new('RGBA', pic.size, color)
     # pic.paste(layer, (0, 0), layer)
@@ -126,7 +130,17 @@ def make_trans_flag(size):
     white = Image.new('RGBA', (width, bands), '#FFFFFF')
     fl.paste(pink, (0, bands))
     fl.paste(white, (0, bands*2))
-    fl.save('flag.png')
+    return fl
+
+
+def make_irish_flag(size):
+    width, height = size
+    bands = width // 3
+    fl = Image.new('RGBA', (width, height), '#FFFFFF')
+    green = Image.new('RGBA', (bands, height), '#169B62')
+    orange = Image.new('RGBA', (bands, height), '#FF883E')
+    fl.paste(green, (0, 0))
+    fl.paste(orange, (bands*2, 0))
     return fl
 
 
@@ -152,11 +166,23 @@ def cleanup():
 @click.option('--width', '-w', default=1920)
 @click.option('--height', '-h', default=1080)
 @click.option('--social/--nosocial', default=True)
-@click.option('--avatar/--noavatar', default=False)
+@click.option('--avatar', is_flag=True)
 @click.option('--text', '-t', default='')
 @click.option('--search', '-z', default='')
 @click.option('--post', '-o', default='')
-def main(palette, width, height, social, avatar, text, search, post):
+@click.option('--clean', is_flag=True)
+@click.option('--flag', is_flag=True)
+@click.option('--photo', default=None)
+def main(palette, width, height, social, avatar, text, search, post, clean, flag, photo):
+    if clean:
+        cleanup()
+        quit()
+
+    if flag:
+        f = make_trans_flag((width, height))
+        f.save('flag.png')
+        quit()
+
     palettes = {
         'classic': {
             'colorstr': '#000000',
@@ -194,6 +220,15 @@ def main(palette, width, height, social, avatar, text, search, post):
             'filter': 'F7A8B8',
             'a11y': 'image composed of various circles with a blue, pink, and white trangender pride flag superimposed. The image is surrounded with a blue border. a pink rectangle inset with "WORD" in bold white text is in the center'
         },
+        'ireland': {
+            'exclusive': True,
+            'ireland': True,
+            'colorstr': '#FF883E',
+            'txtcolor': (255, 255, 255),
+            'border': '#FF883E',
+            'filter': 'FF883E',
+            'a11y': 'image composed of various circles with green, white, and orange irish flag superimposed. The image is surrounded with an irish flag border. an orange rectangle inset with "WORD" in bold white text is in the center'
+        },
         'twitch': {
             'exclusive': True,
             'colorstr': '#523d5f',
@@ -217,6 +252,9 @@ def main(palette, width, height, social, avatar, text, search, post):
         except Exception as e:
             print(e)
             continue
+    if photo:
+        pic = Image.open(photo)
+        pic.save('fimage.jpg')
     if text:
         word = text.upper()
     else:
@@ -234,32 +272,49 @@ def main(palette, width, height, social, avatar, text, search, post):
     elif width < height:
         b_width = width // 40
         f_margin = height // 8
-
     b_double = b_width * 2
 
+    # halftone the image
     h = halftone.Halftone('fimage.jpg')
     h.make(style='grayscale', angles=[random.randrange(360)], sample=20)
+
+    # crop the image
     pic = Image.open('fimage_halftoned.jpg')
-    pic = pic.filter(ImageFilter.DETAIL)
-    pic = pic.filter(ImageFilter.SHARPEN)
     pic = select_section(pic, width, height, b_width)
+
+    # add a filter if necessary
     if color.get('filter'):
         r, g, b = bytes.fromhex(color['filter'])
         ctuple = (r, g, b, 255)
-        pic = add_filter(pic, ctuple, trans=color.get('trans'))
+        pic = add_filter(pic, ctuple, width, height, b_width, trans=color.get('trans'), ireland=color.get('ireland'))
+
+    # make an avatar
     if avatar:
         pic = crop_circle(pic.convert('RGB'))
+
+    # paste it together
     empty_layer = Image.new('RGBA', (width, height))
     empty_layer.paste(pic, (b_width, b_width))
     pic = empty_layer
+
+    # make the border layer
     if color.get('border'):
         border_color = color['border']
     else:
         border_color = color['colorstr']
-    border = Image.new('RGB', (width, height), color=border_color)
+    if color.get('trans'):
+        border = make_trans_flag((width, height)).convert('RGB')
+    elif color.get('ireland'):
+        border = make_irish_flag((width, height)).convert('RGB')
+    else:
+        border = Image.new('RGB', (width, height), color=border_color)
     if avatar:
         border = crop_circle(border)
+
+    # paste the pic and border
     pic = Image.alpha_composite(border.convert('RGBA'), pic)
+
+    # add the text
     font_size = get_font_size(word, width, height, f_margin)
     font = ImageFont.truetype('couture-bldit.ttf', font_size)
     _, box_height = font.getsize_multiline(word)
@@ -275,7 +330,11 @@ def main(palette, width, height, social, avatar, text, search, post):
         draw.text((b_width, b_width), l, color['txtcolor'], font=font)
         pic.paste(inset, ((width - (x+b_double))//2, box_zero + z))
         z += y + b_double + 10
+
+    # save to filesystem
     pic.save('output.png')
+
+    # post it
     if social and not avatar:
         word = word.replace('\n', ' ')
         if post:
@@ -287,21 +346,22 @@ def main(palette, width, height, social, avatar, text, search, post):
             post_to_mastodon('output.png', post_text, alt_text)
         except Exception as e:
             print(e)
-        try:
-            post_to_twitter('output.png', post_text, alt_text)
-        except Exception as e:
-            print(e)
+#        try:
+#             post_to_twitter('output.png', post_text, alt_text)
+#         except Exception as e:
+#             print(e)
         cleanup()
 
+    # update avatar
     if avatar and social:
         try:
             mastodon.account_update_credentials(avatar='output.png')
         except Exception as e:
             print(e)
-        try:
-            twapi.update_profile_image('output.png')
-        except Exception as e:
-            print(e)
+#         try:
+#             twapi.update_profile_image('output.png')
+#         except Exception as e:
+#             print(e)
         cleanup()
 
 

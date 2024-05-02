@@ -126,6 +126,6 @@ dmypy.json
 config.json
 halftone.py
 *.ttf
-words.txt
+words*.txt
 *.png
 *.jpg
