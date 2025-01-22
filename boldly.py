@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 import json
+import logging
 import os
 import random
-from pprint import pprint
+from pprint import pformat
 
 import click
 import flickrapi
 import numpy as np
 import requests
-import tweepy
 from mastodon import Mastodon
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 import halftone
 
@@ -20,6 +20,12 @@ apikey = config['flickrkey']
 apisecret = config['flickrsecret']
 flickr = flickrapi.FlickrAPI(apikey, apisecret, format='parsed-json')
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+formatter = '%(asctime)s - %(levelname)s - %(message)s'
+logging.basicConfig(filename='boldly.log',
+                    encoding='utf-8', format=formatter)
+
 mastodon = Mastodon(
     client_id=config['mast_client'],
     client_secret=config['mast_secret'],
@@ -27,25 +33,19 @@ mastodon = Mastodon(
     api_base_url=config['mast_base_url']
 )
 
-twconf = config['twitter']
-
-twauth = tweepy.OAuthHandler(twconf['consumer_key'], twconf['consumer_secret'])
-twauth.set_access_token(twconf['access_token'], twconf['access_secret'])
-
-twapi = tweepy.API(twauth)
-
 
 def get_image(width, height, word=''):
     if not word:
         with open('words.txt') as f:
             word = random.choice(f.readlines()).strip()
-        print(word)
+        logger.info(f'Selected word: {word}')
     p = flickr.photos.search(
         text=word,
         per_page=500,
         extras='url_o,o_dims,tags'
     )
-    print(len(p['photos']['photo']))
+    logger.debug(
+        f"Total amount of photos in search: {len(p['photos']['photo'])}")
     photos = []
     for i in p['photos']['photo']:
         try:
@@ -53,13 +53,13 @@ def get_image(width, height, word=''):
                 photos.append(i)
         except:
             continue
-    print(len(photos))
+    logger.debug(f'Total photos of correct size: {len(photos)}')
     photo = random.choice(photos)
     purl = photo['url_o']
     if 'food' in photo['tags']:
-        print('contains food')
+        logger.error('contains food')
         return None, None
-    pprint(photo)
+    logger.debug(pformat(photo))
     r = requests.get(purl)
     with open('fimage.jpg', 'wb') as f:
         f.write(r.content)
@@ -108,7 +108,7 @@ def crop_circle(pic):
     return Image.fromarray(final_img_arr)
 
 
-def add_filter(pic, color, width, height, b_width, trans, ireland, watermelon):
+def add_filter(pic, color, width, height, b_width, trans, ireland, watermelon, pride):
     if trans:
         layer = make_trans_flag((width, height))
         layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
@@ -117,6 +117,9 @@ def add_filter(pic, color, width, height, b_width, trans, ireland, watermelon):
         layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
     elif watermelon:
         layer = make_watermelon((width, height))
+        layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
+    elif pride:
+        layer = make_pride_flag((width, height))
         layer = layer.crop((b_width, b_width, width-b_width, height-b_width))
     else:
         layer = Image.new('RGBA', pic.size, color)
@@ -146,6 +149,24 @@ def make_irish_flag(size):
     fl.paste(orange, (bands*2, 0))
     return fl
 
+
+def make_pride_flag(size):
+    width, height = size
+    bands = height // 6
+    fl = Image.new('RGBA', (width, height), '#732982')
+    red = Image.new('RGBA', (width, bands), '#E40303')
+    orange = Image.new('RGBA', (width, bands), '#FF8C00')
+    yellow = Image.new('RGBA', (width, bands), '#FFED00')
+    green = Image.new('RGBA', (width, bands), '#008026')
+    blue = Image.new('RGBA', (width, bands), '#24408E')
+    fl.paste(red, (0, 0))
+    fl.paste(orange, (0, bands))
+    fl.paste(yellow, (0, bands*2))
+    fl.paste(green, (0, bands*3))
+    fl.paste(blue, (0, bands*4))
+    return fl
+
+
 def make_watermelon(size):
     width, height = size
     bands = height // 3
@@ -155,8 +176,9 @@ def make_watermelon(size):
     fl.paste(black, (0, 0))
     fl.paste(green, (0, bands*2))
     draw = ImageDraw.Draw(fl)
-    draw.polygon([(0,0), (0,height), (width//3,height//2)], fill='#EE2A35')
+    draw.polygon([(0, 0), (0, height), (width//3, height//2)], fill='#EE2A35')
     return fl
+
 
 def post_to_mastodon(pic_path, text, alt_text):
     pic = mastodon.media_post(pic_path, description=alt_text)
@@ -246,7 +268,7 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
         'watermelon': {
             'exclusive': True,
             'watermelon': True,
-            'colorstr': '#009736',
+            'colorstr': '#000000',
             'txtcolor': (255, 255, 255),
             'border': '#009736',
             'filter': '009736',
@@ -257,7 +279,16 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
             'colorstr': '#523d5f',
             'filter': '523d5f',
             'txtcolor': (237, 175, 235)
-        }
+        },
+        'pride': {
+            'exclusive': True,
+            'pride': True,
+            'colorstr': '#732982',
+            'txtcolor': (255, 255, 255),
+            'border': '#732982',
+            'filter': '732982',
+            'a11y': 'image composed of circles of various pride flag colors, with a pride flag superimposed. The image is surrounded with a pride flag border. a purple rectangle inset with "WORD" in bold white text is in the center'
+        },
     }
 
     # make an avatar for boldly
@@ -285,7 +316,8 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
     if palette:
         color = palettes[palette]
     else:
-        palette = random.choice([p for p in palettes if not palettes[p].get('exclusive')])
+        palette = random.choice(
+            [p for p in palettes if not palettes[p].get('exclusive')])
         color = palettes[palette]
 
     # sets borders and margins
@@ -306,10 +338,12 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
     pic = select_section(pic, width, height, b_width)
 
     # add a filter if necessary
+    logger.debug(f'selected color: {color}')
     if color.get('filter'):
         r, g, b = bytes.fromhex(color['filter'])
         ctuple = (r, g, b, 255)
-        pic = add_filter(pic, ctuple, width, height, b_width, trans=color.get('trans'), ireland=color.get('ireland'), watermelon=color.get('watermelon'))
+        pic = add_filter(pic, ctuple, width, height, b_width, trans=color.get('trans'), ireland=color.get(
+            'ireland'), watermelon=color.get('watermelon'), pride=color.get('pride'))
 
     # make an avatar
     if avatar:
@@ -331,6 +365,8 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
         border = make_irish_flag((width, height)).convert('RGB')
     elif color.get('watermelon'):
         border = make_watermelon((width, height)).convert('RGB')
+    elif color.get('pride'):
+        border = make_pride_flag((width, height)).convert('RGB')
     else:
         border = Image.new('RGB', (width, height), color=border_color)
     if avatar:
@@ -349,8 +385,9 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
     for l in word.split('\n'):
         l = l.strip()
         x, y = font.getsize_multiline(l)
-        print(x, y, box_zero + z + b_double)
-        inset = Image.new('RGB', (x+b_double, y+b_double), color=color['colorstr'])
+        logger.debug(f'selected bounds: {x}, {y}, {box_zero + z + b_double}')
+        inset = Image.new('RGB', (x+b_double, y+b_double),
+                          color=color['colorstr'])
         draw = ImageDraw.Draw(inset)
         draw.text((b_width, b_width), l, color['txtcolor'], font=font)
         pic.paste(inset, ((width - (x+b_double))//2, box_zero + z))
@@ -370,11 +407,7 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
         try:
             post_to_mastodon('output.png', post_text, alt_text)
         except Exception as e:
-            print(e)
-#        try:
-#             post_to_twitter('output.png', post_text, alt_text)
-#         except Exception as e:
-#             print(e)
+            logger.exception(e)
         cleanup()
 
     # update avatar
@@ -382,11 +415,7 @@ def main(palette, width, height, social, avatar, text, search, post, clean, flag
         try:
             mastodon.account_update_credentials(avatar='output.png')
         except Exception as e:
-            print(e)
-#         try:
-#             twapi.update_profile_image('output.png')
-#         except Exception as e:
-#             print(e)
+            logger.exception(e)
         cleanup()
 
 
